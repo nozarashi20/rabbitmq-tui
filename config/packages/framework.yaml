@@ -2,6 +2,15 @@
 framework:
   secret: '%env(APP_SECRET)%'
 
+  http_client:
+    scoped_clients:
+      rabbitmq.management:
+        base_uri: '%env(RABBITMQ_MANAGEMENT_URL)%'
+        auth_basic: '%env(RABBITMQ_MANAGEMENT_USERNAME)%:%env(RABBITMQ_MANAGEMENT_PASSWORD)%'
+        headers:
+          Accept: application/json
+        timeout: 5
+
   # Note that the session will be started ONLY if you read or write from it.
   session: true
 
