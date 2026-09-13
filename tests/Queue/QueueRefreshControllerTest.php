@@ -75,6 +75,20 @@ final class QueueRefreshControllerTest extends TestCase
         $this->assertSame(2, $state->selectedQueue()?->readyMessages);
     }
 
+    public function testItAppliesTheFilterAfterReplacingTheCompleteSnapshot(): void
+    {
+        $state = new QueueViewState([$this->queue('matching', 1), $this->queue('other', 1)]);
+        $state->setFilter('match');
+        $refresh = new StubQueueRefresh([[$this->queue('matching', 2), $this->queue('other', 3)]]);
+        $controller = new QueueRefreshController(new StubQueueProvider($refresh), $state, 0.0);
+
+        $controller->tick(2.0);
+
+        $this->assertSame(['matching'], array_map(static fn (QueueSnapshot $queue): string => $queue->name, $state->filteredQueues()));
+        $this->assertSame(2, $state->filteredQueues()[0]->readyMessages);
+        $this->assertSame(3, $state->queues()[1]->readyMessages);
+    }
+
     private function queue(string $name, int $readyMessages): QueueSnapshot
     {
         return new QueueSnapshot('/', $name, $readyMessages, 0, 0, $readyMessages, 'classic', true, false, false, 'running');

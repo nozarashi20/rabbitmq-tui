@@ -24,6 +24,7 @@ final class QueueOverviewWidget extends AbstractWidget implements FocusableInter
         private readonly QueueViewState $state,
         private readonly QueueOverviewRenderer $renderer,
         private readonly \Closure $onInspect,
+        private readonly ?\Closure $onFocusFilter = null,
     ) {
     }
 
@@ -49,13 +50,25 @@ final class QueueOverviewWidget extends AbstractWidget implements FocusableInter
             if ($this->state->showingDetail()) {
                 ($this->onInspect)();
             }
+
+            return;
+        }
+
+        if ($keybindings->matches($data, 'queue_filter')) {
+            $this->onFocusFilter?->__invoke();
         }
     }
 
     /** @return list<string> */
     public function render(RenderContext $context): array
     {
-        return $this->renderer->render($this->state->queues(), $context->getColumns(), $this->state->selectedIndex(), max(1, $context->getRows()));
+        return $this->renderer->render(
+            $this->state->filteredQueues(),
+            $context->getColumns(),
+            $this->state->selectedFilteredIndex(),
+            max(1, $context->getRows()),
+            '' === $this->state->filter() ? 'No queues found.' : 'No queues match filter.',
+        );
     }
 
     public function expandVertically(bool $expand): static
@@ -76,6 +89,6 @@ final class QueueOverviewWidget extends AbstractWidget implements FocusableInter
     /** @return array<string, string[]> */
     protected static function getDefaultKeybindings(): array
     {
-        return ['queue_up' => [Key::UP], 'queue_down' => [Key::DOWN], 'queue_inspect' => [Key::ENTER]];
+        return ['queue_up' => [Key::UP], 'queue_down' => [Key::DOWN], 'queue_inspect' => [Key::ENTER], 'queue_filter' => ['/']];
     }
 }

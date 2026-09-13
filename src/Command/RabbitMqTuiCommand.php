@@ -6,6 +6,7 @@ namespace App\Command;
 
 use App\Queue\QueueDetailRenderer;
 use App\Queue\QueueDetailWidget;
+use App\Queue\QueueFilterWidget;
 use App\Queue\QueueOverviewRenderer;
 use App\Queue\QueueOverviewWidget;
 use App\Queue\QueueProviderInterface;
@@ -56,11 +57,13 @@ final readonly class RabbitMqTuiCommand
         $state = new QueueViewState($queues);
         $refreshController = new QueueRefreshController($this->queueProvider, $state, microtime(true));
         $keybindings = new Keybindings([
-            'quit' => ['q', Key::shift('q'), Key::ctrl('c')],
+            'quit' => ['q', Key::shift('q')],
+            'force_quit' => [Key::ctrl('c')],
             'back' => [Key::ESCAPE],
         ]);
         $tui = new Tui(keybindings: $keybindings);
         $overviewWidget = null;
+        $filterWidget = null;
         $detailWidget = null;
         $statusWidget = null;
         $showDetail = function () use ($tui, $state, &$detailWidget, &$statusWidget): void {
@@ -76,19 +79,36 @@ final readonly class RabbitMqTuiCommand
             $tui->add($statusWidget);
             $tui->add(new TextWidget('Esc Back   q or Ctrl-C Exit', true)->setStyle(new Style(color: 'gray')));
         };
-        $showOverview = function () use ($tui, $state, $showDetail, &$overviewWidget, &$statusWidget): void {
+        $showOverview = function () use ($tui, $state, $showDetail, &$overviewWidget, &$filterWidget, &$statusWidget): void {
             $tui->clear();
             $tui->add(new TextWidget('RabbitMQ queues')->setStyle(new Style(bold: true, color: 'cyan')));
-            $overviewWidget = new QueueOverviewWidget($state, $this->renderer, $showDetail)->expandVertically(true);
+            $filterWidget = new QueueFilterWidget(
+                $state,
+                static function () use (&$overviewWidget): void {
+                    $overviewWidget?->invalidate();
+                },
+                static function () use ($tui, &$overviewWidget): void {
+                    $tui->setFocus($overviewWidget);
+                },
+            );
+            $overviewWidget = new QueueOverviewWidget(
+                $state,
+                $this->renderer,
+                $showDetail,
+                static function () use ($tui, &$filterWidget): void {
+                    $tui->setFocus($filterWidget);
+                },
+            )->expandVertically(true);
             $statusWidget = new QueueStatusWidget($state);
+            $tui->add($filterWidget);
             $tui->add($overviewWidget);
             $tui->add($statusWidget);
-            $tui->add(new TextWidget('Up/Down Navigate   Enter Inspect   q or Ctrl-C Exit', true)->setStyle(new Style(color: 'gray')));
+            $tui->add(new TextWidget('/ Filter   Up/Down Navigate   Enter Inspect   q or Ctrl-C Exit', true)->setStyle(new Style(color: 'gray')));
             $tui->setFocus($overviewWidget);
         };
         $showOverview();
-        $tui->addListener(static function (InputEvent $event) use ($keybindings, $tui, $state, $showOverview, $refreshController): void {
-            if ($keybindings->matches($event->getData(), 'quit')) {
+        $tui->addListener(static function (InputEvent $event) use ($keybindings, $tui, $state, $showOverview, $refreshController, &$filterWidget): void {
+            if ($keybindings->matches($event->getData(), 'force_quit') || (!$filterWidget?->isFocused() && $keybindings->matches($event->getData(), 'quit'))) {
                 $event->stopPropagation();
                 $refreshController->stop();
                 $tui->stop();
