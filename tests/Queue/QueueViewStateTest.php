@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Queue;
 
+use App\Queue\QueueDetailSnapshot;
 use App\Queue\QueueSnapshot;
 use App\Queue\QueueViewState;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -189,6 +190,22 @@ final class QueueViewStateTest extends TestCase
 
         $state->moveDown();
         $this->assertSame('match-first', $state->selectedQueue()?->name);
+    }
+
+    public function testItDoesNotCarryDetailDataOrFailureToAnotherQueue(): void
+    {
+        $first = $this->queue('first');
+        $state = new QueueViewState([$first, $this->queue('second')]);
+        $state->openSelectedQueue();
+        $state->replaceQueueDetail(new QueueDetailSnapshot($first, 1.0, 1.0, []));
+        $state->setDetailRefreshFailure('Detail refresh failed: unavailable');
+        $state->returnToOverview();
+        $state->moveDown();
+
+        $state->openSelectedQueue();
+
+        $this->assertNull($state->queueDetail());
+        $this->assertNull($state->status());
     }
 
     private function queue(string $name): QueueSnapshot

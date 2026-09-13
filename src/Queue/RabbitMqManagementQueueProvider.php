@@ -40,6 +40,16 @@ final readonly class RabbitMqManagementQueueProvider implements QueueProviderInt
         return new RabbitMqManagementQueueRefresh($this->httpClient, $this->items(...), $this->mapQueue(...));
     }
 
+    public function startDetailRefresh(QueueSnapshot $queue): QueueDetailRefreshInterface
+    {
+        return new RabbitMqManagementQueueDetailRefresh(
+            $this->httpClient,
+            $queue->vhost,
+            $queue->name,
+            $this->mapDetail(...),
+        );
+    }
+
     /**
      * @param array<mixed> $response
      *
@@ -82,6 +92,72 @@ final readonly class RabbitMqManagementQueueProvider implements QueueProviderInt
             $this->requiredBoolean($item, 'exclusive'),
             $this->optionalString($item, 'state'),
         );
+    }
+
+    /** @param array<mixed> $item */
+    private function mapDetail(array $item): QueueDetailSnapshot
+    {
+        $consumers = $item['consumer_details'] ?? null;
+        if (!\is_array($consumers) || !array_is_list($consumers)) {
+            throw new \UnexpectedValueException('RabbitMQ returned queue details without a valid consumer list.');
+        }
+
+        return new QueueDetailSnapshot(
+            $this->mapQueue($item),
+            $this->rate($item, 'publish_details'),
+            $this->rate($item, 'deliver_get_details'),
+            array_map($this->mapConsumer(...), $consumers),
+        );
+    }
+
+    private function mapConsumer(mixed $item): QueueConsumerSnapshot
+    {
+        if (!\is_array($item) || !isset($item['consumer_tag']) || !\is_string($item['consumer_tag']) || '' === $item['consumer_tag']) {
+            throw new \UnexpectedValueException('RabbitMQ returned a consumer without a valid tag.');
+        }
+
+        $channel = $item['channel_details'] ?? null;
+        if (!\is_array($channel)) {
+            throw new \UnexpectedValueException('RabbitMQ returned a consumer without valid channel details.');
+        }
+
+        return new QueueConsumerSnapshot(
+            $item['consumer_tag'],
+            $this->optionalString($channel, 'name'),
+            $this->optionalString($channel, 'connection_name'),
+            $this->requiredCount($item, 'prefetch_count'),
+            $this->requiredBoolean($item, 'ack_required'),
+            $this->optionalString($item, 'activity_status'),
+        );
+    }
+
+    /** @param array<mixed> $item */
+    private function rate(array $item, string $field): ?float
+    {
+        $messageStats = $item['message_stats'] ?? null;
+        if (null === $messageStats) {
+            return null;
+        }
+
+        if (!\is_array($messageStats)) {
+            throw new \UnexpectedValueException('RabbitMQ returned invalid message statistics.');
+        }
+
+        $details = $messageStats[$field] ?? null;
+        if (null === $details) {
+            return null;
+        }
+
+        if (!\is_array($details) || !isset($details['rate']) || !\is_int($details['rate']) && !\is_float($details['rate'])) {
+            throw new \UnexpectedValueException(\sprintf('RabbitMQ returned an invalid %s rate.', $field));
+        }
+
+        $rate = (float) $details['rate'];
+        if ($rate < 0 || !is_finite($rate)) {
+            throw new \UnexpectedValueException(\sprintf('RabbitMQ returned an invalid %s rate.', $field));
+        }
+
+        return $rate;
     }
 
     /**

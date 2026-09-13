@@ -11,8 +11,10 @@ final class QueueViewState
     private int $selectedIndex = 0;
     private bool $showingDetail = false;
     private ?string $refreshFailure = null;
+    private ?string $detailRefreshFailure = null;
     private ?string $notice = null;
     private string $filter = '';
+    private ?QueueDetailSnapshot $queueDetail = null;
 
     /** @param list<QueueSnapshot> $queues */
     public function __construct(private array $queues)
@@ -81,6 +83,16 @@ final class QueueViewState
         return $this->showingDetail;
     }
 
+    public function queueDetail(): ?QueueDetailSnapshot
+    {
+        $queue = $this->selectedQueue();
+        if (null === $queue || null === $this->queueDetail || !$this->sameQueue($queue, $this->queueDetail->queue)) {
+            return null;
+        }
+
+        return $this->queueDetail;
+    }
+
     public function moveUp(): void
     {
         $queues = $this->filteredQueues();
@@ -106,6 +118,10 @@ final class QueueViewState
     public function openSelectedQueue(): void
     {
         $this->showingDetail = null !== $this->selectedFilteredIndex();
+        if (null === $this->queueDetail()) {
+            $this->queueDetail = null;
+            $this->detailRefreshFailure = null;
+        }
     }
 
     public function returnToOverview(): void
@@ -132,6 +148,8 @@ final class QueueViewState
 
         if ($wasShowingDetail && null === $this->indexOf($selectedQueue)) {
             $this->showingDetail = false;
+            $this->queueDetail = null;
+            $this->detailRefreshFailure = null;
             $this->notice = 'Inspected queue disappeared.';
         }
 
@@ -150,9 +168,31 @@ final class QueueViewState
         $this->refreshFailure = null;
     }
 
+    public function replaceQueueDetail(QueueDetailSnapshot $detail): bool
+    {
+        $queue = $this->selectedQueue();
+        if (!$this->showingDetail || null === $queue || !$this->sameQueue($queue, $detail->queue)) {
+            return false;
+        }
+
+        $this->queueDetail = $detail;
+
+        return true;
+    }
+
+    public function setDetailRefreshFailure(string $message): void
+    {
+        $this->detailRefreshFailure = $message;
+    }
+
+    public function clearDetailRefreshFailure(): void
+    {
+        $this->detailRefreshFailure = null;
+    }
+
     public function status(): ?string
     {
-        return $this->refreshFailure ?? $this->notice;
+        return ($this->showingDetail ? $this->detailRefreshFailure : null) ?? $this->refreshFailure ?? $this->notice;
     }
 
     private function indexOf(?QueueSnapshot $needle): ?int

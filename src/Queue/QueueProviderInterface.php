@@ -12,4 +12,6 @@ interface QueueProviderInterface
     public function queues(): array;
 
     public function startRefresh(): QueueRefreshInterface;
+
+    public function startDetailRefresh(QueueSnapshot $queue): QueueDetailRefreshInterface;
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Queue;
 
+use App\Queue\QueueDetailRefreshInterface;
 use App\Queue\QueueProviderInterface;
 use App\Queue\QueueRefreshController;
 use App\Queue\QueueRefreshInterface;
@@ -117,6 +118,11 @@ final class StubQueueProvider implements QueueProviderInterface
         ++$this->startedRefreshes;
 
         return array_shift($this->refreshes) ?? throw new \LogicException('Unexpected refresh.');
+    }
+
+    public function startDetailRefresh(QueueSnapshot $queue): QueueDetailRefreshInterface
+    {
+        throw new \LogicException('Unexpected detail refresh.');
     }
 }
 

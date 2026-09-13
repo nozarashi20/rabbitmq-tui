@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Tests\Queue;
 
+use App\Queue\QueueConsumerSnapshot;
 use App\Queue\QueueDetailRenderer;
+use App\Queue\QueueDetailSnapshot;
 use App\Queue\QueueDetailWidget;
 use App\Queue\QueueSnapshot;
 use App\Queue\QueueViewState;
@@ -55,6 +57,45 @@ final class QueueDetailWidgetTest extends TestCase
         $lines = $widget->render(new RenderContext(40, 20));
 
         $this->assertContains('Ready           42', $lines);
+    }
+
+    public function testItKeepsConsumerTroubleshootingDataVisibleInAShortViewport(): void
+    {
+        $queue = $this->queue(12);
+        $state = new QueueViewState([$queue]);
+        $state->openSelectedQueue();
+        $state->replaceQueueDetail(new QueueDetailSnapshot($queue, 2.5, 2.0, [
+            new QueueConsumerSnapshot('worker', 'channel-1', 'connection-1', 20, true, 'up'),
+        ]));
+        $widget = new QueueDetailWidget($state, new QueueDetailRenderer());
+
+        $lines = $widget->render(new RenderContext(24, 8));
+
+        $this->assertCount(8, $lines);
+        $this->assertContains('Consumers', $lines);
+        $this->assertContains('1. worker', $lines);
+        $this->assertContains('Ch channel-1', $lines);
+        $this->assertContains('Prefetch 20  Ack yes  up', $lines);
+    }
+
+    public function testItScrollsToConsumersBeyondTheConstrainedViewport(): void
+    {
+        $queue = $this->queue(12);
+        $state = new QueueViewState([$queue]);
+        $state->openSelectedQueue();
+        $state->replaceQueueDetail(new QueueDetailSnapshot($queue, 2.5, 2.0, [
+            new QueueConsumerSnapshot('worker-1', 'channel-1', 'connection-1', 20, true, 'up'),
+            new QueueConsumerSnapshot('worker-2', 'channel-2', 'connection-2', 20, true, 'up'),
+            new QueueConsumerSnapshot('worker-3', 'channel-3', 'connection-3', 20, true, 'up'),
+        ]));
+        $widget = new QueueDetailWidget($state, new QueueDetailRenderer());
+
+        $widget->render(new RenderContext(24, 8));
+        $widget->handleInput("\e[6~");
+        $lines = $widget->render(new RenderContext(24, 8));
+
+        $this->assertContains('3. worker-3', $lines);
+        $this->assertNotContains('1. worker-1', $lines);
     }
 
     private function queue(int $readyMessages): QueueSnapshot

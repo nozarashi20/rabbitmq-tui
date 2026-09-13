@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Command;
 
+use App\Queue\QueueDetailRefreshController;
 use App\Queue\QueueDetailRenderer;
 use App\Queue\QueueDetailWidget;
 use App\Queue\QueueFilterWidget;
@@ -56,6 +57,7 @@ final readonly class RabbitMqTuiCommand
 
         $state = new QueueViewState($queues);
         $refreshController = new QueueRefreshController($this->queueProvider, $state, microtime(true));
+        $detailRefreshController = new QueueDetailRefreshController($this->queueProvider, $state);
         $keybindings = new Keybindings([
             'quit' => ['q', Key::shift('q')],
             'force_quit' => [Key::ctrl('c')],
@@ -66,18 +68,21 @@ final readonly class RabbitMqTuiCommand
         $filterWidget = null;
         $detailWidget = null;
         $statusWidget = null;
-        $showDetail = function () use ($tui, $state, &$detailWidget, &$statusWidget): void {
-            if (null === $state->selectedQueue()) {
+        $showDetail = function () use ($tui, $state, $detailRefreshController, &$detailWidget, &$statusWidget): void {
+            $queue = $state->selectedQueue();
+            if (null === $queue) {
                 return;
             }
 
+            $detailRefreshController->inspect($queue, microtime(true));
             $tui->clear();
             $tui->add(new TextWidget('Queue details')->setStyle(new Style(bold: true, color: 'cyan')));
             $detailWidget = new QueueDetailWidget($state, $this->detailRenderer)->expandVertically(true);
             $statusWidget = new QueueStatusWidget($state);
             $tui->add($detailWidget);
             $tui->add($statusWidget);
-            $tui->add(new TextWidget('Esc Back   q or Ctrl-C Exit', true)->setStyle(new Style(color: 'gray')));
+            $tui->add(new TextWidget('Esc Back   Up/Down Scroll   PgUp/PgDn Page   q or Ctrl-C Exit', true)->setStyle(new Style(color: 'gray')));
+            $tui->setFocus($detailWidget);
         };
         $showOverview = function () use ($tui, $state, $showDetail, &$overviewWidget, &$filterWidget, &$statusWidget): void {
             $tui->clear();
@@ -107,10 +112,11 @@ final readonly class RabbitMqTuiCommand
             $tui->setFocus($overviewWidget);
         };
         $showOverview();
-        $tui->addListener(static function (InputEvent $event) use ($keybindings, $tui, $state, $showOverview, $refreshController, &$filterWidget): void {
+        $tui->addListener(static function (InputEvent $event) use ($keybindings, $tui, $state, $showOverview, $refreshController, $detailRefreshController, &$filterWidget): void {
             if ($keybindings->matches($event->getData(), 'force_quit') || (!$filterWidget?->isFocused() && $keybindings->matches($event->getData(), 'quit'))) {
                 $event->stopPropagation();
                 $refreshController->stop();
+                $detailRefreshController->stop();
                 $tui->stop();
 
                 return;
@@ -121,19 +127,24 @@ final readonly class RabbitMqTuiCommand
             }
 
             $event->stopPropagation();
+            $detailRefreshController->stop();
             $state->returnToOverview();
             $showOverview();
         });
-        $tui->onTick(static function () use ($state, $refreshController, $showOverview, &$overviewWidget, &$detailWidget, &$statusWidget): ?bool {
+        $tui->onTick(static function () use ($state, $refreshController, $detailRefreshController, $showOverview, &$overviewWidget, &$detailWidget, &$statusWidget): ?bool {
             $wasShowingDetail = $state->showingDetail();
-            if (!$refreshController->tick(microtime(true))) {
-                return $refreshController->isRefreshing() ?: null;
+            $now = microtime(true);
+            $overviewChanged = $refreshController->tick($now);
+            $detailChanged = $detailRefreshController->tick($now);
+            $refreshing = $refreshController->isRefreshing() || $detailRefreshController->isRefreshing();
+            if (!$overviewChanged && !$detailChanged) {
+                return $refreshing ?: null;
             }
 
             if ($wasShowingDetail && !$state->showingDetail()) {
                 $showOverview();
 
-                return $refreshController->isRefreshing() ?: null;
+                return $refreshing ?: null;
             }
 
             if ($state->showingDetail()) {
@@ -143,7 +154,7 @@ final readonly class RabbitMqTuiCommand
             }
             $statusWidget?->invalidate();
 
-            return $refreshController->isRefreshing() ?: null;
+            return $refreshing ?: null;
         });
         $tui->run();
 

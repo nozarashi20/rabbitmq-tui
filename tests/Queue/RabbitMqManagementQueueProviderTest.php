@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Queue;
 
+use App\Queue\QueueSnapshot;
 use App\Queue\RabbitMqManagementQueueProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\HttpClient\MockHttpClient;
@@ -123,5 +124,83 @@ final class RabbitMqManagementQueueProviderTest extends TestCase
         $queues = $refresh->advance(0.0);
 
         $this->assertSame(['first', 'second'], array_map(static fn ($queue) => $queue->name, $queues));
+    }
+
+    public function testItMapsQueueDetailsRatesAndConsumers(): void
+    {
+        $requests = [];
+        $client = new MockHttpClient(static function (string $method, string $url) use (&$requests): MockResponse {
+            $requests[] = [$method, $url];
+
+            return new MockResponse(json_encode([
+                'vhost' => '/billing',
+                'name' => 'invoice jobs',
+                'messages_ready' => 12,
+                'messages_unacknowledged' => 3,
+                'consumers' => 1,
+                'messages' => 15,
+                'type' => 'quorum',
+                'durable' => true,
+                'auto_delete' => false,
+                'exclusive' => false,
+                'state' => 'running',
+                'message_stats' => [
+                    'publish_details' => ['rate' => 27.34],
+                    'deliver_get_details' => ['rate' => 25],
+                ],
+                'consumer_details' => [[
+                    'consumer_tag' => 'worker-1',
+                    'prefetch_count' => 20,
+                    'ack_required' => true,
+                    'activity_status' => 'up',
+                    'channel_details' => [
+                        'name' => '127.0.0.1:40100 -> 127.0.0.1:5672 (1)',
+                        'connection_name' => '127.0.0.1:40100 -> 127.0.0.1:5672',
+                    ],
+                ]],
+            ], \JSON_THROW_ON_ERROR));
+        });
+        $queue = new QueueSnapshot('/billing', 'invoice jobs', 0, 0, 0, 0, 'classic', false, false, false, null);
+
+        $detail = new RabbitMqManagementQueueProvider($client)->startDetailRefresh($queue)->advance(0.0);
+
+        $this->assertNotNull($detail);
+        $this->assertSame('quorum', $detail->queue->type);
+        $this->assertSame(27.34, $detail->publishRate);
+        $this->assertSame(25.0, $detail->deliveryRate);
+        $this->assertCount(1, $detail->consumers);
+        $this->assertSame('worker-1', $detail->consumers[0]->tag);
+        $this->assertSame(20, $detail->consumers[0]->prefetchCount);
+        $this->assertTrue($detail->consumers[0]->acknowledgementRequired);
+        $this->assertSame('up', $detail->consumers[0]->activityStatus);
+        $this->assertSame('GET', $requests[0][0]);
+        $this->assertStringContainsString('/api/queues/%2Fbilling/invoice%20jobs', $requests[0][1]);
+    }
+
+    public function testItKeepsUnavailableRatesDistinctFromZeroRates(): void
+    {
+        $client = new MockHttpClient([
+            new MockResponse(json_encode([
+                'vhost' => '/',
+                'name' => 'idle',
+                'messages_ready' => 0,
+                'messages_unacknowledged' => 0,
+                'consumers' => 0,
+                'messages' => 0,
+                'durable' => true,
+                'auto_delete' => false,
+                'exclusive' => false,
+                'message_stats' => ['publish_details' => ['rate' => 0]],
+                'consumer_details' => [],
+            ], \JSON_THROW_ON_ERROR)),
+        ]);
+        $queue = new QueueSnapshot('/', 'idle', 0, 0, 0, 0, 'classic', true, false, false, null);
+
+        $detail = new RabbitMqManagementQueueProvider($client)->startDetailRefresh($queue)->advance(0.0);
+
+        $this->assertNotNull($detail);
+        $this->assertSame(0.0, $detail->publishRate);
+        $this->assertNull($detail->deliveryRate);
+        $this->assertSame([], $detail->consumers);
     }
 }
