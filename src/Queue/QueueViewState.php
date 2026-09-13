@@ -8,9 +8,11 @@ final class QueueViewState
 {
     private int $selectedIndex = 0;
     private bool $showingDetail = false;
+    private ?string $refreshFailure = null;
+    private ?string $notice = null;
 
     /** @param list<QueueSnapshot> $queues */
-    public function __construct(private readonly array $queues)
+    public function __construct(private array $queues)
     {
     }
 
@@ -61,5 +63,60 @@ final class QueueViewState
     public function returnToOverview(): void
     {
         $this->showingDetail = false;
+    }
+
+    /** @param list<QueueSnapshot> $queues */
+    public function replaceQueues(array $queues): bool
+    {
+        $selectedQueue = $this->selectedQueue();
+        $wasShowingDetail = $this->showingDetail;
+        $this->queues = $queues;
+        $this->notice = null;
+
+        $selectedIndex = $this->indexOf($selectedQueue);
+        if ([] === $queues) {
+            $this->selectedIndex = 0;
+        } elseif (null !== $selectedIndex) {
+            $this->selectedIndex = $selectedIndex;
+        } else {
+            $this->selectedIndex = min($this->selectedIndex, \count($queues) - 1);
+        }
+
+        if ($wasShowingDetail && null === $this->indexOf($selectedQueue)) {
+            $this->showingDetail = false;
+            $this->notice = 'Inspected queue disappeared.';
+        }
+
+        return $wasShowingDetail && !$this->showingDetail;
+    }
+
+    public function setRefreshFailure(string $message): void
+    {
+        $this->refreshFailure = $message;
+    }
+
+    public function clearRefreshFailure(): void
+    {
+        $this->refreshFailure = null;
+    }
+
+    public function status(): ?string
+    {
+        return $this->refreshFailure ?? $this->notice;
+    }
+
+    private function indexOf(?QueueSnapshot $needle): ?int
+    {
+        if (null === $needle) {
+            return null;
+        }
+
+        foreach ($this->queues as $index => $queue) {
+            if ($queue->vhost === $needle->vhost && $queue->name === $needle->name) {
+                return $index;
+            }
+        }
+
+        return null;
     }
 }

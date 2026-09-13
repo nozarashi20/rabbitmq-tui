@@ -85,4 +85,43 @@ final class RabbitMqManagementQueueProviderTest extends TestCase
         $this->assertSame('GET', $requests[0][0]);
         $this->assertStringContainsString('/api/queues?page=1&page_size=100&pagination=true', $requests[0][1]);
     }
+
+    public function testItsRefreshDoesNotPublishAPartialPaginatedSnapshot(): void
+    {
+        $client = new MockHttpClient([
+            new MockResponse(json_encode([
+                'items' => [[
+                    'vhost' => '/',
+                    'name' => 'first',
+                    'messages_ready' => 0,
+                    'messages_unacknowledged' => 0,
+                    'messages' => 0,
+                    'durable' => true,
+                    'auto_delete' => false,
+                    'exclusive' => false,
+                ]],
+                'page_count' => 2,
+            ], \JSON_THROW_ON_ERROR)),
+            new MockResponse(json_encode([
+                'items' => [[
+                    'vhost' => '/',
+                    'name' => 'second',
+                    'messages_ready' => 0,
+                    'messages_unacknowledged' => 0,
+                    'messages' => 0,
+                    'durable' => true,
+                    'auto_delete' => false,
+                    'exclusive' => false,
+                ]],
+                'page_count' => 2,
+            ], \JSON_THROW_ON_ERROR)),
+        ]);
+
+        $refresh = new RabbitMqManagementQueueProvider($client)->startRefresh();
+
+        $this->assertNull($refresh->advance(0.0));
+        $queues = $refresh->advance(0.0);
+
+        $this->assertSame(['first', 'second'], array_map(static fn ($queue) => $queue->name, $queues));
+    }
 }
