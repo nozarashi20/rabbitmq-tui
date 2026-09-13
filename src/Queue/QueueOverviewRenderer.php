@@ -28,12 +28,12 @@ final class QueueOverviewRenderer
      *
      * @return list<string>
      */
-    public function render(array $queues, int $columns, ?int $selectedIndex = null, ?int $maxVisible = null): array
+    public function render(array $queues, int $columns, ?int $selectedIndex = null, ?int $maxVisible = null, string $emptyMessage = 'No queues found.'): array
     {
         $columns = max(1, $columns);
 
         if ([] === $queues) {
-            return [AnsiUtils::truncateToWidth('No queues found.', $columns, '')];
+            return [AnsiUtils::truncateToWidth($emptyMessage, $columns, '')];
         }
 
         if ($columns < self::COMPACT_LAYOUT_MIN_COLUMNS) {

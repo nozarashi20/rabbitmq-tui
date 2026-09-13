@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Queue;
 
+use App\Queue\QueueFilterWidget;
 use App\Queue\QueueOverviewRenderer;
 use App\Queue\QueueOverviewWidget;
 use App\Queue\QueueSnapshot;
@@ -63,5 +64,70 @@ final class QueueOverviewWidgetTest extends TestCase
 
         $this->assertCount(2, $lines);
         $this->assertStringContainsString('first', $lines[1]);
+    }
+
+    public function testSlashFocusesTheFilter(): void
+    {
+        $focused = false;
+        $widget = new QueueOverviewWidget(
+            new QueueViewState([]),
+            new QueueOverviewRenderer(),
+            static function (): void {},
+            static function () use (&$focused): void {
+                $focused = true;
+            },
+        );
+
+        $widget->handleInput('/');
+
+        $this->assertTrue($focused);
+    }
+
+    public function testTheFilterUpdatesStateAndEscapeClearsBeforeLeavingFocus(): void
+    {
+        $state = new QueueViewState([
+            new QueueSnapshot('/', 'jobs', 0, 0, 0, 0, 'classic', true, false, false, 'running'),
+        ]);
+        $changed = 0;
+        $leftFilter = 0;
+        $widget = new QueueFilterWidget(
+            $state,
+            static function () use (&$changed): void {
+                ++$changed;
+            },
+            static function () use (&$leftFilter): void {
+                ++$leftFilter;
+            },
+        );
+
+        $widget->handleInput('J');
+        $widget->handleInput("\e");
+
+        $this->assertSame('', $state->filter());
+        $this->assertSame(2, $changed);
+        $this->assertSame(0, $leftFilter);
+
+        $widget->handleInput("\e");
+
+        $this->assertSame(1, $leftFilter);
+    }
+
+    public function testItRendersAWidthSafeFilteredEmptyStateAndFilterInput(): void
+    {
+        $state = new QueueViewState([
+            new QueueSnapshot('/', 'jobs', 0, 0, 0, 0, 'classic', true, false, false, 'running'),
+        ]);
+        $state->setFilter('missing');
+        $widget = new QueueOverviewWidget($state, new QueueOverviewRenderer(), static function (): void {});
+        $input = new QueueFilterWidget($state, static function (): void {}, static function (): void {});
+
+        $lines = $widget->render(new RenderContext(12, 1));
+        $inputLines = $input->render(new RenderContext(12, 1));
+
+        $this->assertSame('missing', $input->getValue());
+        $this->assertStringContainsString('No queues', AnsiUtils::stripAnsiCodes($lines[0]));
+        foreach ([...$lines, ...$inputLines] as $line) {
+            $this->assertLessThanOrEqual(12, AnsiUtils::visibleWidth($line));
+        }
     }
 }

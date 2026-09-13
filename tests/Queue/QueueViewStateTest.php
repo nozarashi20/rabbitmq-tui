@@ -125,6 +125,72 @@ final class QueueViewStateTest extends TestCase
         $this->assertNull($state->selectedQueue());
     }
 
+    public function testItFiltersByQueueNameAndVirtualHostWithoutCaseSensitivity(): void
+    {
+        $state = new QueueViewState([
+            new QueueSnapshot('Billing', 'invoices', 0, 0, 0, 0, 'classic', true, false, false, 'running'),
+            new QueueSnapshot('other', 'IMPORTS', 0, 0, 0, 0, 'classic', true, false, false, 'running'),
+            new QueueSnapshot('Équipe', 'archive', 0, 0, 0, 0, 'classic', true, false, false, 'running'),
+        ]);
+
+        $state->setFilter('port');
+        $this->assertSame(['IMPORTS'], array_map(static fn (QueueSnapshot $queue): string => $queue->name, $state->filteredQueues()));
+
+        $state->setFilter('bill');
+        $this->assertSame(['invoices'], array_map(static fn (QueueSnapshot $queue): string => $queue->name, $state->filteredQueues()));
+
+        $state->setFilter('éq');
+        $this->assertSame(['archive'], array_map(static fn (QueueSnapshot $queue): string => $queue->name, $state->filteredQueues()));
+    }
+
+    public function testItKeepsAllQueuesForAnEmptyFilterAndCanHaveNoMatchingQueues(): void
+    {
+        $state = new QueueViewState([$this->queue('jobs')]);
+
+        $this->assertSame(['jobs'], array_map(static fn (QueueSnapshot $queue): string => $queue->name, $state->filteredQueues()));
+
+        $state->setFilter('missing');
+
+        $this->assertSame([], $state->filteredQueues());
+        $this->assertNull($state->selectedFilteredIndex());
+    }
+
+    public function testItSelectsTheNearestVisibleQueueWhenTheFilterHidesTheSelection(): void
+    {
+        $state = new QueueViewState([$this->queue('first'), $this->queue('selected'), $this->queue('third')]);
+        $state->moveDown();
+
+        $state->setFilter('third');
+
+        $this->assertSame('third', $state->selectedQueue()?->name);
+        $this->assertSame(0, $state->selectedFilteredIndex());
+    }
+
+    public function testItKeepsTheVisibleSelectionWhenClearingTheFilter(): void
+    {
+        $state = new QueueViewState([$this->queue('first'), $this->queue('selected'), $this->queue('third')]);
+        $state->moveDown();
+        $state->setFilter('third');
+
+        $state->setFilter('');
+
+        $this->assertSame('third', $state->selectedQueue()?->name);
+        $this->assertSame(2, $state->selectedIndex());
+        $this->assertCount(3, $state->filteredQueues());
+    }
+
+    public function testItNavigatesOnlyMatchingQueues(): void
+    {
+        $state = new QueueViewState([$this->queue('match-first'), $this->queue('skip'), $this->queue('match-last')]);
+        $state->setFilter('match');
+
+        $state->moveDown();
+        $this->assertSame('match-last', $state->selectedQueue()?->name);
+
+        $state->moveDown();
+        $this->assertSame('match-first', $state->selectedQueue()?->name);
+    }
+
     private function queue(string $name): QueueSnapshot
     {
         return new QueueSnapshot('/', $name, 0, 0, 0, 0, 'classic', true, false, false, 'running');
