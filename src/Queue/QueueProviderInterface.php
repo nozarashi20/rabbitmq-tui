@@ -10,4 +10,6 @@ interface QueueProviderInterface
      * @return list<QueueSnapshot>
      */
     public function queues(): array;
+
+    public function startRefresh(): QueueRefreshInterface;
 }

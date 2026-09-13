@@ -13,7 +13,7 @@ final class QueueDetailWidget extends AbstractWidget implements VerticallyExpand
     private bool $verticallyExpanded = false;
 
     public function __construct(
-        private readonly QueueSnapshot $queue,
+        private readonly QueueViewState $state,
         private readonly QueueDetailRenderer $renderer,
     ) {
     }
@@ -21,7 +21,12 @@ final class QueueDetailWidget extends AbstractWidget implements VerticallyExpand
     /** @return list<string> */
     public function render(RenderContext $context): array
     {
-        return \array_slice($this->renderer->render($this->queue, $context->getColumns()), 0, max(1, $context->getRows()));
+        $queue = $this->state->selectedQueue();
+        if (null === $queue) {
+            return [];
+        }
+
+        return \array_slice($this->renderer->render($queue, $context->getColumns()), 0, max(1, $context->getRows()));
     }
 
     public function expandVertically(bool $expand): static

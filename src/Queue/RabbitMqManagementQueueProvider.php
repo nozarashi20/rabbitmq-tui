@@ -12,8 +12,6 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 #[AsAlias(QueueProviderInterface::class)]
 final readonly class RabbitMqManagementQueueProvider implements QueueProviderInterface
 {
-    private const int PAGE_SIZE = 100;
-
     public function __construct(
         #[Target('rabbitmq.management')]
         private HttpClientInterface $httpClient,
@@ -28,30 +26,18 @@ final readonly class RabbitMqManagementQueueProvider implements QueueProviderInt
      */
     public function queues(): array
     {
-        $queues = [];
+        $refresh = $this->startRefresh();
 
-        for ($page = 1;; ++$page) {
-            $response = $this->httpClient->request('GET', '/api/queues', [
-                'query' => [
-                    'page' => $page,
-                    'page_size' => self::PAGE_SIZE,
-                    'pagination' => 'true',
-                ],
-            ]);
-
-            [$items, $hasMorePages] = $this->items($response->toArray(), $page);
-            foreach ($items as $item) {
-                $queues[] = $this->mapQueue($item);
-            }
-
-            if (!$hasMorePages) {
-                break;
-            }
-        }
-
-        usort($queues, static fn (QueueSnapshot $left, QueueSnapshot $right): int => ($left->vhost <=> $right->vhost) ?: ($left->name <=> $right->name));
+        do {
+            $queues = $refresh->advance(null);
+        } while (null === $queues);
 
         return $queues;
+    }
+
+    public function startRefresh(): QueueRefreshInterface
+    {
+        return new RabbitMqManagementQueueRefresh($this->httpClient, $this->items(...), $this->mapQueue(...));
     }
 
     /**
