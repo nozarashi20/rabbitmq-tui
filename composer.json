@@ -4,13 +4,14 @@
     "minimum-stability": "stable",
     "prefer-stable": true,
     "require": {
-        "php": ">=8.4",
+        "php": ">=8.5",
         "ext-ctype": "*",
         "ext-iconv": "*",
         "symfony/console": "8.1.*",
         "symfony/dotenv": "8.1.*",
         "symfony/flex": "^2.11",
         "symfony/framework-bundle": "8.1.*",
+        "symfony/http-client": "8.1.*",
         "symfony/monolog-bundle": "^3.0|^4.0.2",
         "symfony/runtime": "8.1.*",
         "symfony/tui": "8.1.*",
@@ -69,7 +70,7 @@
         }
     },
     "require-dev": {
-        "php-cs-fixer/shim": "^3.95",
-        "phpunit/phpunit": "^13.3"
+        "php-cs-fixer/shim": "^3.95.25",
+        "phpunit/phpunit": "^13.3.3"
     }
 }

@@ -45,6 +45,8 @@ Use `final` when it expresses the intended design, not mechanically.
 
 Prefer explicit dependencies and constructor injection where appropriate.
 
+Prefer attributes for configuration over `services.yaml` when possible.
+
 ## Symfony TUI Conventions
 
 Use Symfony TUI abstractions rather than emitting raw ANSI sequences.
