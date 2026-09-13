@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\QueueOverview;
+namespace App\Queue;
 
 use Symfony\Component\DependencyInjection\Attribute\AsAlias;
 use Symfony\Component\DependencyInjection\Attribute\Target;
@@ -21,7 +21,7 @@ final readonly class RabbitMqManagementQueueProvider implements QueueProviderInt
     }
 
     /**
-     * @return list<Queue>
+     * @return list<QueueSnapshot>
      *
      * @throws HttpClientException
      * @throws \UnexpectedValueException
@@ -49,7 +49,7 @@ final readonly class RabbitMqManagementQueueProvider implements QueueProviderInt
             }
         }
 
-        usort($queues, static fn (Queue $left, Queue $right): int => ($left->vhost <=> $right->vhost) ?: ($left->name <=> $right->name));
+        usort($queues, static fn (QueueSnapshot $left, QueueSnapshot $right): int => ($left->vhost <=> $right->vhost) ?: ($left->name <=> $right->name));
 
         return $queues;
     }
@@ -77,18 +77,24 @@ final readonly class RabbitMqManagementQueueProvider implements QueueProviderInt
         return [array_values($response['items']), $page < $pageCount];
     }
 
-    private function mapQueue(mixed $item): Queue
+    private function mapQueue(mixed $item): QueueSnapshot
     {
         if (!\is_array($item) || !isset($item['vhost']) || !\is_string($item['vhost']) || !isset($item['name']) || !\is_string($item['name'])) {
             throw new \UnexpectedValueException('RabbitMQ returned a queue without a valid virtual host and name.');
         }
 
-        return new Queue(
+        return new QueueSnapshot(
             $item['vhost'],
             $item['name'],
             $this->requiredCount($item, 'messages_ready'),
             $this->requiredCount($item, 'messages_unacknowledged'),
             $this->optionalCount($item, 'consumers'),
+            $this->requiredCount($item, 'messages'),
+            $this->queueType($item),
+            $this->requiredBoolean($item, 'durable'),
+            $this->requiredBoolean($item, 'auto_delete'),
+            $this->requiredBoolean($item, 'exclusive'),
+            $this->optionalString($item, 'state'),
         );
     }
 
@@ -114,6 +120,50 @@ final readonly class RabbitMqManagementQueueProvider implements QueueProviderInt
         }
 
         if (!\is_int($item[$field]) || $item[$field] < 0) {
+            throw new \UnexpectedValueException(\sprintf('RabbitMQ returned an invalid %s value.', $field));
+        }
+
+        return $item[$field];
+    }
+
+    /**
+     * @param array<mixed> $item
+     */
+    private function queueType(array $item): string
+    {
+        if (isset($item['type']) && \is_string($item['type']) && '' !== $item['type']) {
+            return $item['type'];
+        }
+
+        if (isset($item['arguments']) && \is_array($item['arguments']) && isset($item['arguments']['x-queue-type']) && \is_string($item['arguments']['x-queue-type']) && '' !== $item['arguments']['x-queue-type']) {
+            return $item['arguments']['x-queue-type'];
+        }
+
+        return 'classic';
+    }
+
+    /**
+     * @param array<mixed> $item
+     */
+    private function requiredBoolean(array $item, string $field): bool
+    {
+        if (!isset($item[$field]) || !\is_bool($item[$field])) {
+            throw new \UnexpectedValueException(\sprintf('RabbitMQ returned an invalid %s value.', $field));
+        }
+
+        return $item[$field];
+    }
+
+    /**
+     * @param array<mixed> $item
+     */
+    private function optionalString(array $item, string $field): ?string
+    {
+        if (!\array_key_exists($field, $item) || null === $item[$field]) {
+            return null;
+        }
+
+        if (!\is_string($item[$field]) || '' === $item[$field]) {
             throw new \UnexpectedValueException(\sprintf('RabbitMQ returned an invalid %s value.', $field));
         }
 

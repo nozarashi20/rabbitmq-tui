@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\QueueOverview;
+namespace App\Tests\Queue;
 
-use App\QueueOverview\RabbitMqManagementQueueProvider;
+use App\Queue\RabbitMqManagementQueueProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\HttpClient\MockHttpClient;
 use Symfony\Component\HttpClient\Response\MockResponse;
@@ -20,7 +20,7 @@ final class RabbitMqManagementQueueProviderTest extends TestCase
             ], \JSON_THROW_ON_ERROR)),
         ]);
 
-        $queues = (new RabbitMqManagementQueueProvider($client))->queues();
+        $queues = new RabbitMqManagementQueueProvider($client)->queues();
 
         $this->assertSame([], $queues);
     }
@@ -39,6 +39,12 @@ final class RabbitMqManagementQueueProviderTest extends TestCase
                         'messages_ready' => 2841,
                         'messages_unacknowledged' => 16,
                         'consumers' => 8,
+                        'messages' => 2857,
+                        'type' => 'quorum',
+                        'durable' => true,
+                        'auto_delete' => false,
+                        'exclusive' => false,
+                        'state' => 'running',
                     ]],
                     'page_count' => 2,
                 ], \JSON_THROW_ON_ERROR));
@@ -50,21 +56,31 @@ final class RabbitMqManagementQueueProviderTest extends TestCase
                     'name' => 'emails',
                     'messages_ready' => 0,
                     'messages_unacknowledged' => 2,
+                    'messages' => 2,
+                    'durable' => true,
+                    'auto_delete' => false,
+                    'exclusive' => false,
                 ]],
                 'page_count' => 2,
             ], \JSON_THROW_ON_ERROR));
         });
 
-        $queues = (new RabbitMqManagementQueueProvider($client))->queues();
+        $queues = new RabbitMqManagementQueueProvider($client)->queues();
 
         $this->assertSame('emails', $queues[0]->name);
         $this->assertSame('/', $queues[0]->vhost);
         $this->assertSame(0, $queues[0]->readyMessages);
         $this->assertSame(2, $queues[0]->unacknowledgedMessages);
         $this->assertNull($queues[0]->consumers);
+        $this->assertSame(2, $queues[0]->totalMessages);
+        $this->assertSame('classic', $queues[0]->type);
+        $this->assertTrue($queues[0]->durable);
         $this->assertSame('imports', $queues[1]->name);
         $this->assertSame('billing', $queues[1]->vhost);
         $this->assertSame(8, $queues[1]->consumers);
+        $this->assertSame(2857, $queues[1]->totalMessages);
+        $this->assertSame('quorum', $queues[1]->type);
+        $this->assertSame('running', $queues[1]->state);
         $this->assertCount(2, $requests);
         $this->assertSame('GET', $requests[0][0]);
         $this->assertStringContainsString('/api/queues?page=1&page_size=100&pagination=true', $requests[0][1]);

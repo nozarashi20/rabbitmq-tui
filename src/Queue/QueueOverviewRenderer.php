@@ -2,9 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\QueueOverview;
+namespace App\Queue;
 
 use Symfony\Component\Tui\Ansi\AnsiUtils;
+use Symfony\Component\Tui\Style\Style;
 use Symfony\Component\Tui\Widget\Util\StringUtils;
 
 final class QueueOverviewRenderer
@@ -23,11 +24,11 @@ final class QueueOverviewRenderer
     ];
 
     /**
-     * @param list<Queue> $queues
+     * @param list<QueueSnapshot> $queues
      *
      * @return list<string>
      */
-    public function render(array $queues, int $columns): array
+    public function render(array $queues, int $columns, ?int $selectedIndex = null, ?int $maxVisible = null): array
     {
         $columns = max(1, $columns);
 
@@ -36,29 +37,74 @@ final class QueueOverviewRenderer
         }
 
         if ($columns < self::COMPACT_LAYOUT_MIN_COLUMNS) {
-            return array_map(fn (Queue $queue): string => $this->queueLabel($queue, $columns), $queues);
+            if (null === $selectedIndex) {
+                return array_map(fn (QueueSnapshot $queue): string => $this->queueLabel($queue, $columns), $queues);
+            }
+
+            return $this->visibleLines(array_map(fn (QueueSnapshot $queue): string => $this->queueLabel($queue, $columns), $queues), $columns, $selectedIndex, $maxVisible);
         }
 
         if ($columns < self::OVERVIEW_LAYOUT_MIN_COLUMNS) {
-            return $this->renderTable($queues, $columns, self::COMPACT_METRIC_COLUMNS);
+            return $this->selectableTable($queues, $columns, self::COMPACT_METRIC_COLUMNS, selectedIndex: $selectedIndex, maxVisible: $maxVisible);
         }
 
         if ($columns < self::VHOST_LAYOUT_MIN_COLUMNS) {
-            return $this->renderTable($queues, $columns, self::OVERVIEW_METRIC_COLUMNS, rightPadding: 1);
+            return $this->selectableTable($queues, $columns, self::OVERVIEW_METRIC_COLUMNS, rightPadding: 1, selectedIndex: $selectedIndex, maxVisible: $maxVisible);
         }
 
-        return $this->renderTable(
+        return $this->selectableTable(
             $queues,
             $columns,
             self::OVERVIEW_METRIC_COLUMNS,
             vhostWidth: self::VHOST_WIDTH,
             rightPadding: 1,
+            selectedIndex: $selectedIndex,
+            maxVisible: $maxVisible,
         );
     }
 
+    /** @param list<QueueSnapshot> $queues @param array<string, int> $columns @return list<string> */
+    private function selectableTable(array $queues, int $availableColumns, array $columns, ?int $vhostWidth = null, int $rightPadding = 0, ?int $selectedIndex = null, ?int $maxVisible = null): array
+    {
+        if (null === $selectedIndex) {
+            return $this->renderTable($queues, $availableColumns, $columns, $vhostWidth, $rightPadding);
+        }
+
+        $lines = $this->renderTable($queues, max(1, $availableColumns - 2), $columns, $vhostWidth, $rightPadding);
+
+        if (null !== $maxVisible && $maxVisible <= 1) {
+            return $this->visibleLines(\array_slice($lines, 1), $availableColumns, $selectedIndex, 1);
+        }
+
+        $header = '  ' . $lines[0];
+        $rows = $this->visibleLines(\array_slice($lines, 1), $availableColumns, $selectedIndex, null === $maxVisible ? null : max(1, $maxVisible - 1));
+
+        return [$header, ...$rows];
+    }
+
+    /** @param list<string> $lines @return list<string> */
+    private function visibleLines(array $lines, int $columns, ?int $selectedIndex, ?int $maxVisible): array
+    {
+        if (null === $selectedIndex) {
+            return $lines;
+        }
+
+        $selectedIndex = max(0, min($selectedIndex, \count($lines) - 1));
+        $visible = max(1, min($maxVisible ?? \count($lines), \count($lines)));
+        $start = max(0, min($selectedIndex - intdiv($visible, 2), \count($lines) - $visible));
+        $result = [];
+        foreach (\array_slice($lines, $start, $visible, true) as $index => $line) {
+            $prefix = $index === $selectedIndex ? '> ' : '  ';
+            $line = AnsiUtils::truncateToWidth($prefix . $line, $columns, '');
+            $result[] = $index === $selectedIndex ? new Style(reverse: true)->apply($line) : $line;
+        }
+
+        return $result;
+    }
+
     /**
-     * @param list<Queue>        $queues
-     * @param array<string, int> $columns
+     * @param list<QueueSnapshot> $queues
+     * @param array<string, int>  $columns
      *
      * @return list<string>
      */
@@ -94,7 +140,7 @@ final class QueueOverviewRenderer
         return $lines;
     }
 
-    private function metric(Queue $queue, string $label, int $width): string
+    private function metric(QueueSnapshot $queue, string $label, int $width): string
     {
         $value = match ($label) {
             'Ready' => $queue->readyMessages,
@@ -114,7 +160,7 @@ final class QueueOverviewRenderer
         return AnsiUtils::truncateToWidth((string) $value, $width, '…');
     }
 
-    private function queueLabel(Queue $queue, int $width): string
+    private function queueLabel(QueueSnapshot $queue, int $width): string
     {
         return AnsiUtils::truncateToWidth($this->vhost($queue->vhost, $width) . ' · ' . $this->queueName($queue->name, $width), $width, '');
     }

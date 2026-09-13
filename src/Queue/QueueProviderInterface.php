@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace App\QueueOverview;
+namespace App\Queue;
 
 interface QueueProviderInterface
 {
     /**
-     * @return list<Queue>
+     * @return list<QueueSnapshot>
      */
     public function queues(): array;
 }
