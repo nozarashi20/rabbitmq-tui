@@ -12,3 +12,25 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  rabbitmq-fixtures:
+    image: rabbitmq:4.3.5-management
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    command: ['sh', '/fixtures/seed-fixtures.sh']
+    environment:
+      RABBITMQADMIN_TARGET_HOST: rabbitmq
+      RABBITMQADMIN_USERNAME: guest
+      RABBITMQADMIN_PASSWORD: guest
+      RABBITMQADMIN_NON_INTERACTIVE_MODE: 'true'
+    volumes:
+      - './docker/rabbitmq/seed-fixtures.sh:/fixtures/seed-fixtures.sh:ro'
+
+  rabbitmq-demo-worker:
+    image: pivotalrabbitmq/perf-test:2.24.0
+    depends_on:
+      rabbitmq-fixtures:
+        condition: service_completed_successfully
+    command: --uri amqp://guest:guest@rabbitmq:5672/%2f --queue demo.jobs.live --producers 1 --consumers 3 --rate 3 --consumer-rate 1 --consumer-latency 500000 --qos 2 --flag persistent --auto-delete false --id tui-demo
+    restart: unless-stopped
